@@ -761,6 +761,62 @@ Picking heuristics:
   one of the `*MultilingualNeural` voices. They're trained on
   multiple languages and often have a less "TV anchor" timbre.
 
+### Multi-speaker dubbing — one voice per speaker
+
+When the source has multiple speakers (interview, panel, dialogue),
+generate the dub with a different voice per speaker so listeners can
+follow who's speaking.
+
+**Tag cues with speaker labels.** Add `[A]` / `[B]` / etc. as a
+prefix to the cue text in a separate `*.tagged.srt` file. Keep the
+clean SRT (without tags) for subtitle burn-in:
+
+```text
+1
+00:00:00,000 --> 00:00:03,400
+[A] So what about that AI rewrite thing?
+
+2
+00:00:03,400 --> 00:00:08,200
+[B] Right — let me explain the workflow.
+```
+
+**Pass a `--voice-map` to `dub.py`.** The default voice (positional
+arg) is used for any cue with no tag. Tagged cues route to their
+mapped voice:
+
+```bash
+.venv/bin/python dub.py en-US-AndrewMultilingualNeural -3% +0Hz \
+    --srt input.en.tagged.srt \
+    --voice-map "A=en-US-BrianMultilingualNeural,B=en-US-AndrewMultilingualNeural"
+```
+
+The script strips the `[X]` tag before TTS and includes it in the
+voice routing. For two males, picking voices with audibly different
+timbre is more important than gender — try Brian (casual) +
+Andrew (warm) for two distinct American males, or pair `en-US-` and
+`en-GB-` for accent contrast. For mixed-gender, Ava + Andrew is a
+solid default.
+
+**Burn the clean SRT.** When rendering, point `render.py --srt` at
+the un-tagged version so `[A]` doesn't show up on screen:
+
+```bash
+.venv/bin/python render.py \
+    --video input.mp4 \
+    --srt input.en.srt              \  # clean, for burn
+    --dub input_en_dub.mp4          \  # contains the per-speaker voices
+    --out input_en_final.mp4
+```
+
+**Diarization.** Whisper alone does not produce speaker labels. For
+a known short clip, manual tagging (read the transcript, assign A/B
+based on context) is the fastest path. For longer content or when
+the speakers are not obvious from text alone, run `pyannote.audio`
+or `whisperx --diarize` separately and merge the speaker timeline
+with whisper's word timestamps. This skill does not yet automate
+diarization — file an issue or PR if you want it.
+
 ### Always sample before committing
 
 Don't render the full dub on a guess. Generate the **same cue** with

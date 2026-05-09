@@ -38,8 +38,16 @@ ap.add_argument("pitch", nargs="?", default="+0Hz")
 ap.add_argument("--video", default=None)
 ap.add_argument("--srt", default=None)
 ap.add_argument("--out", default=None)
+ap.add_argument("--voice-map", default="",
+                help='comma-separated speaker=voice pairs, e.g. "A=en-US-BrianMultilingualNeural,B=en-US-AndrewMultilingualNeural". Cues prefixed with [A]/[B] in the SRT route to that voice. Cues with no tag use the default --voice.')
 args = ap.parse_args()
 VOICE, RATE, PITCH = args.voice, args.rate, args.pitch
+VOICE_MAP = {}
+if args.voice_map:
+    for pair in args.voice_map.split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            VOICE_MAP[k.strip()] = v.strip()
 
 def autodetect_video() -> Path:
     cs = []
@@ -92,7 +100,13 @@ def parse_srt(text: str):
         start, end = ts_to_sec(m.group(1)), ts_to_sec(m.group(2))
         # join remaining lines, strip line breaks (TTS reads as one)
         spoken = " ".join(lines[2:]).replace("——", "，").replace("—", "，")
-        out.append((idx, start, end, spoken))
+        # extract optional [A]/[B]/etc. speaker tag at start
+        sm = re.match(r'^\[([A-Za-z][A-Za-z0-9_-]*)\]\s*', spoken)
+        speaker = None
+        if sm:
+            speaker = sm.group(1)
+            spoken = spoken[sm.end():]
+        out.append((idx, start, end, spoken, speaker))
     return out
 
 def probe_dur(p: Path) -> float:
@@ -112,7 +126,13 @@ import time, requests as _rq
 
 def is_volcano_voice(v): return v.startswith("zh_") and "bigtts" in v
 
-def volcano_synth(text: str, out_path: Path):
+def voice_for(speaker):
+    """Look up effective voice ID for a given speaker tag (None → default)."""
+    if speaker and speaker in VOICE_MAP:
+        return VOICE_MAP[speaker]
+    return VOICE
+
+def volcano_synth(text: str, out_path: Path, voice: str = None):
     """Volcano (字节豆包) TTS via /api/v3/tts/unidirectional.
 
     Streaming NDJSON response: each line is a JSON event carrying a
@@ -138,7 +158,7 @@ def volcano_synth(text: str, out_path: Path):
         "user": {"uid": "dub-script"},
         "req_params": {
             "text": text,
-            "speaker": VOICE,
+            "speaker": voice or VOICE,
             "audio_params": {
                 "format": "mp3",
                 "sample_rate": 24000,
@@ -165,29 +185,30 @@ def volcano_synth(text: str, out_path: Path):
         raise RuntimeError("Volcano TTS returned no audio data")
     out_path.write_bytes(audio)
 
-async def edge_synth(text: str, out_path: Path):
-    comm = edge_tts.Communicate(text, VOICE, rate=RATE, pitch=PITCH)
+async def edge_synth(text: str, out_path: Path, voice: str = None):
+    comm = edge_tts.Communicate(text, voice or VOICE, rate=RATE, pitch=PITCH)
     await comm.save(str(out_path))
 
 import os
-ENGINE = "volcano" if is_volcano_voice(VOICE) else "edge"
-print(f"engine: {ENGINE}")
+print(f"voice map: {VOICE_MAP or '(none — using default voice for all)'}")
 
 async def gen_all():
-    for idx, start, end, text in segs:
+    for idx, start, end, text, speaker in segs:
         mp3 = WORK / f"seg_{idx:02d}.mp3"
         if mp3.exists() and mp3.stat().st_size > 0:
             continue
+        v = voice_for(speaker)
+        engine = "volcano" if is_volcano_voice(v) else "edge"
         for attempt in range(8):
             try:
-                if ENGINE == "volcano":
-                    volcano_synth(text, mp3)
+                if engine == "volcano":
+                    volcano_synth(text, mp3, voice=v)
                 else:
-                    await edge_synth(text, mp3)
+                    await edge_synth(text, mp3, voice=v)
                 if mp3.exists() and mp3.stat().st_size > 0:
                     break
             except Exception as e:
-                print(f"  seg{idx:02d} attempt {attempt+1} failed: {e}")
+                print(f"  seg{idx:02d} [{speaker or '-'}] attempt {attempt+1} failed: {e}")
             await asyncio.sleep(1.5 * (attempt + 1))
         else:
             sys.exit(f"failed to generate seg {idx}")
@@ -197,7 +218,7 @@ asyncio.run(gen_all())
 # 2. for each segment, atempo or pad to fit target duration
 inputs = []
 filt = []
-for i, (idx, start, end, text) in enumerate(segs):
+for i, (idx, start, end, text, speaker) in enumerate(segs):
     mp3 = WORK / f"seg_{idx:02d}.mp3"
     tts_dur = probe_dur(mp3)
     target = end - start
@@ -243,7 +264,7 @@ parts = []  # list of [label]
 # Restart with cleaner pipeline:
 pipeline_segments = []  # list of (kind, payload)
 prev = 0.0
-for idx, start, end, text in segs:
+for idx, start, end, text, speaker in segs:
     if start > prev + 0.01:
         pipeline_segments.append(("silence", start - prev))
     pipeline_segments.append(("tts", idx, end - start))
