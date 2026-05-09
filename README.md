@@ -60,7 +60,7 @@ translate-video/
 ## Install as a Claude Code skill
 
 ```bash
-git clone https://github.com/<you>/translate-video.git \
+git clone https://github.com/jianshuo/translate-video.git \
     ~/.claude/skills/translate-video
 ```
 
