@@ -1,6 +1,6 @@
 ---
 name: translate-video
-description: End-to-end video localization. Transcribe spoken audio in any language Whisper supports (Spanish, English, Portuguese, French, Italian, Japanese, Korean, etc.), translate into a chosen target language (Simplified Chinese and English are first-class; other targets work via the same pipeline if a TTS voice is available), generate punctuation-bounded SRT subtitles, optionally burn them into the video, and optionally produce a time-aligned voice dub. TTS engine routes by voice ID — Volcano (豆包) TTS for Chinese voices, edge-tts neural for any language. Preserves the original audio as a low-volume bed under the dub when desired. Bundled scripts in `scripts/`: `dub.py` (TTS + time-align) and `render.py` (burn subtitles + mix audio + final cut). All major behaviors are flag-controlled.
+description: End-to-end video localization. Transcribe spoken audio in any language Whisper supports (Spanish, English, Portuguese, French, Italian, Japanese, Korean, etc.), translate into a chosen target language (Simplified Chinese and English are first-class; other targets work via the same pipeline if a TTS voice is available), generate punctuation-bounded SRT subtitles, optionally burn them into the video, and optionally produce a time-aligned voice dub. Defaults to single-speaker — uses one voice for the whole video. Multi-speaker dubbing (different voice per person) is an opt-in advanced mode triggered only when the user explicitly says the source has multiple speakers. TTS routes by voice ID — Volcano (豆包) for Chinese, edge-tts neural for any language. Preserves the original audio as a low-volume bed under the dub when desired. Bundled scripts in `scripts/`: `dub.py` (TTS + time-align), `render.py` (burn + mix + final), and `visual_diarize.py` (opt-in mouth-movement speaker detection). All major behaviors are flag-controlled.
 ---
 
 # translate-video
@@ -53,6 +53,26 @@ Picking from user phrasing:
 The canonical worked example throughout this doc is **Spanish → Chinese**
 because that was the original validation scenario, but every step
 applies to other source/target pairs unchanged.
+
+### Number of speakers — default to one
+
+**Default: assume one speaker.** Use a single voice for the entire
+dub. This is the right answer for monologues, vlogs, recorded talks,
+narrator-only clips, and the overwhelming majority of videos people
+ask about. Don't run diarization, don't tag the SRT with `[A]`/`[B]`,
+don't bring up multi-speaker complexity.
+
+**Switch to multi-speaker only when the user explicitly says so** —
+phrasings like "two people", "interview", "dialogue", "conversation
+between", "separate the speakers", "different voice for each", or a
+direct request to do diarization. When triggered, follow the
+"Multi-speaker dubbing (advanced, opt-in)" section near the end of
+this doc.
+
+If you're unsure whether a video is one speaker or many, ship the
+single-voice version first. Adding speaker separation later is
+cheap (just regenerate the dub); shipping confused multi-speaker
+output by default wastes the user's time.
 
 ---
 
@@ -761,111 +781,6 @@ Picking heuristics:
   one of the `*MultilingualNeural` voices. They're trained on
   multiple languages and often have a less "TV anchor" timbre.
 
-### Multi-speaker dubbing — one voice per speaker
-
-When the source has multiple speakers (interview, panel, dialogue),
-generate the dub with a different voice per speaker so listeners can
-follow who's speaking.
-
-**Tag cues with speaker labels.** Add `[A]` / `[B]` / etc. as a
-prefix to the cue text in a separate `*.tagged.srt` file. Keep the
-clean SRT (without tags) for subtitle burn-in:
-
-```text
-1
-00:00:00,000 --> 00:00:03,400
-[A] So what about that AI rewrite thing?
-
-2
-00:00:03,400 --> 00:00:08,200
-[B] Right — let me explain the workflow.
-```
-
-**Pass a `--voice-map` to `dub.py`.** The default voice (positional
-arg) is used for any cue with no tag. Tagged cues route to their
-mapped voice:
-
-```bash
-.venv/bin/python dub.py en-US-AndrewMultilingualNeural -3% +0Hz \
-    --srt input.en.tagged.srt \
-    --voice-map "A=en-US-BrianMultilingualNeural,B=en-US-AndrewMultilingualNeural"
-```
-
-The script strips the `[X]` tag before TTS and includes it in the
-voice routing. For two males, picking voices with audibly different
-timbre is more important than gender — try Brian (casual) +
-Andrew (warm) for two distinct American males, or pair `en-US-` and
-`en-GB-` for accent contrast. For mixed-gender, Ava + Andrew is a
-solid default.
-
-**Burn the clean SRT.** When rendering, point `render.py --srt` at
-the un-tagged version so `[A]` doesn't show up on screen:
-
-```bash
-.venv/bin/python render.py \
-    --video input.mp4 \
-    --srt input.en.srt              \  # clean, for burn
-    --dub input_en_dub.mp4          \  # contains the per-speaker voices
-    --out input_en_final.mp4
-```
-
-**Diarization — visual is more reliable than guessing from text.**
-Whisper alone does not produce speaker labels. For a sit-down
-interview/dialogue where speakers are visible on screen, the
-bundled `scripts/visual_diarize.py` is fast, accurate, and self-
-contained:
-
-```bash
-.venv/bin/python visual_diarize.py \
-    --video input.mp4 --srt input.en.srt \
-    --out input.en.diarized.srt \
-    --report diarization_report.json \
-    --sample-fps 5 --num-speakers 2
-```
-
-How it works:
-
-1. Samples N frames per second (default 5) of the video.
-2. Runs MediaPipe FaceLandmarker (Tasks API) to find up to
-   `--num-speakers` faces per frame and 478 landmarks each.
-3. For each face, measures mouth aperture as the vertical distance
-   between inner upper lip (idx 13) and inner lower lip (idx 14).
-4. Bins faces by horizontal screen position (x-quantiles) into
-   speakers — labels them `A`, `B`, ... left-to-right.
-5. For every cue's [start, end] window, integrates per-speaker
-   frame-to-frame mouth-aperture change. Whoever moved their mouth
-   the most during that cue wins the tag.
-6. Writes a `[A]`/`[B]`-prefixed SRT and a JSON report with
-   per-cue scores + a confidence ratio (winner / runner-up).
-
-Dependencies: `mediapipe` and `opencv-python` in the venv. On first
-run, downloads the FaceLandmarker model (~3.6MB) to
-`/tmp/mp_models/face_landmarker.task`.
-
-**This is materially better than text-based labeling.** In one
-validation, manual labels (based on reading the transcript and
-guessing who'd say what) put 6/56 cues with speaker A and 50/56
-with B. Visual diarization revealed the actual split was 29/27 —
-i.e. text-based guesses were wildly wrong because the speakers
-take similar-shaped turns and the conversational handoff was at
-cue 30, not cue 7. Always prefer visual diarization when the
-speakers are on camera.
-
-**Confidence-ratio review.** Spot-check any cue with
-`confidence_ratio < 1.5` in the JSON report — these are usually
-overlapping speech (laughter, agreement) or one speaker briefly
-out of frame. Manually correct in the diarized SRT before dubbing.
-
-**Limits.** Visual diarization fails when:
-- A speaker is consistently off-camera while talking.
-- Camera cuts or zooms make face position unstable across cues.
-- Three or more speakers are in similar horizontal positions
-  (binning by x is too coarse — switch to k-means on (x, y) or use
-  pyannote audio diarization instead).
-
-For audio-only material (podcasts, voice-overs), fall back to
-`pyannote.audio` or `whisperx --diarize`.
-
 ### Always sample before committing
 
 Don't render the full dub on a guess. Generate the **same cue** with
@@ -1018,6 +933,136 @@ Adopt the `_zh_` / `_en_` infix the moment a project produces both.
   NDJSON**, not a single JSON document. The success terminator is
   `code=20000000`, not `code=0`. Concatenate base64-decoded `data`
   chunks for the full MP3.
+- **Default to one voice for the whole video.** Do not run
+  diarization, do not tag cues with `[A]`/`[B]`, and do not bring
+  up multi-speaker complexity unless the user explicitly says the
+  source has multiple speakers. Adding speaker separation later is
+  a quick re-run; shipping confused multi-voice output by default
+  wastes the user's time. The "Advanced: Multi-speaker dubbing"
+  section is opt-in only.
+
+---
+
+## Advanced: Multi-speaker dubbing (opt-in)
+
+**Only invoke this section when the user explicitly says the source
+has multiple speakers** ("interview", "two people", "dialogue",
+"separate the speakers", "different voice for each", or a direct
+request to do diarization). For everything else, use one voice and
+skip this section.
+
+When triggered, generate the dub with a different voice per speaker
+so the listener can follow who's speaking. Two paths:
+
+### Path 1 (recommended for on-camera speakers): visual diarization
+
+`scripts/visual_diarize.py` watches mouth movement per face per
+frame and tags each cue with the dominant speaker. Self-contained,
+no API keys, no audio fingerprinting.
+
+```bash
+uv pip install --python .venv/bin/python mediapipe opencv-python
+
+.venv/bin/python scripts/visual_diarize.py \
+    --video input.mp4 --srt input.en.srt \
+    --out input.en.diarized.srt \
+    --report diarization_report.json \
+    --sample-fps 5 --num-speakers 2
+```
+
+How it works:
+
+1. Samples N frames per second (default 5).
+2. Runs MediaPipe FaceLandmarker (Tasks API) for up to
+   `--num-speakers` faces per frame, 478 landmarks each.
+3. Measures mouth aperture per face as the vertical distance between
+   inner upper lip (idx 13) and inner lower lip (idx 14).
+4. Bins faces by horizontal screen position (x-quantiles) → speakers
+   `A`, `B`, ... left-to-right.
+5. For every cue's [start, end] window, integrates per-speaker
+   frame-to-frame mouth-aperture change. Highest mover wins the tag.
+6. Writes a `[A]`/`[B]`-prefixed SRT plus a JSON report with
+   per-cue scores and a confidence ratio (winner / runner-up).
+
+On first run, downloads the FaceLandmarker model (~3.6 MB) to
+`/tmp/mp_models/face_landmarker.task`.
+
+**Visual is materially better than guessing from text.** In one
+validation, manual text-based labels split 6/50 between speakers;
+visual diarization showed the actual split was 29/27 — text-based
+guessing was wildly wrong because both people take similar-shaped
+turns. Always prefer visual when the speakers are on camera.
+
+**Spot-check low-confidence cues.** Any cue in the JSON report with
+`confidence_ratio < 1.5` is borderline — usually overlapping speech
+or one speaker briefly off-frame. Hand-correct before dubbing.
+
+### Path 2 (fallback): manual tagging
+
+For very short clips (1–2 minutes), or when speakers are off-camera,
+or when visual diarization fails:
+
+```text
+1
+00:00:00,000 --> 00:00:03,400
+[A] So what about that AI rewrite thing?
+
+2
+00:00:03,400 --> 00:00:08,200
+[B] Right — let me explain the workflow.
+```
+
+Save as `*.tagged.srt`. Keep the **clean** SRT (without tags) for
+subtitle burn-in.
+
+### Routing voices in dub.py
+
+Pass `--voice-map` with `speaker=voice` pairs. The positional voice
+arg is the default for cues with no tag.
+
+```bash
+.venv/bin/python scripts/dub.py en-US-AndrewMultilingualNeural -3% +0Hz \
+    --srt input.en.tagged.srt \
+    --voice-map "A=en-US-BrianMultilingualNeural,B=en-US-AndrewMultilingualNeural"
+```
+
+Voice-pairing tips:
+
+- **Two of the same gender:** pick voices with audibly different
+  timbre. Brian (casual) + Andrew (warm) works for two American
+  males. Ava (warm female) + Emma (cheerful female) for two females.
+- **Mixed gender:** Ava + Andrew is a clean default.
+- **Accent contrast:** pair `en-US-` and `en-GB-` for distinctness.
+- **Chinese:** mix Volcano voices like
+  `zh_female_gaolengyujie_moon_bigtts` (mature) +
+  `zh_female_kailangjiejie_moon_bigtts` (warm sister).
+
+### Rendering with multi-speaker dub
+
+Use the **clean** SRT for `render.py --srt` so `[A]`/`[B]` tags
+don't appear on screen:
+
+```bash
+.venv/bin/python scripts/render.py \
+    --video input.mp4 \
+    --srt input.en.srt              \  # CLEAN, for burn-in
+    --dub input_en_dub.mp4          \  # contains the per-speaker voices
+    --out input_en_final.mp4
+```
+
+### Limits
+
+Visual diarization fails when:
+
+- A speaker is consistently off-camera while talking.
+- Camera cuts or zooms make face position unstable across cues.
+- Three or more speakers sit at similar horizontal positions
+  (x-quantile binning is too coarse — switch to k-means on (x, y)
+  or use audio-based diarization instead).
+
+For audio-only material (podcasts, voice-overs), fall back to
+`pyannote.audio` or `whisperx --diarize`. This skill does not yet
+bundle audio-based diarization — file an issue or PR if you need it.
 
 ---
 

@@ -58,10 +58,16 @@ translate-video/
     └── visual_diarize.py  # Mouth-movement speaker diarization (MediaPipe)
 ```
 
-## Multi-speaker dubbing
+## Optional: multi-speaker dubbing (advanced)
 
-For interviews/dialogues, use a different voice per speaker. Two
-ways to assign cues to speakers:
+By default, the pipeline uses **one voice for the whole video** —
+that's the right choice for the overwhelming majority of clips
+(monologues, vlogs, talks, narration). Skip this section unless the
+source actually has multiple speakers and you want a different voice
+per person.
+
+When you do need multi-speaker dubbing, two paths to assign cues to
+speakers:
 
 1. **Visual diarization (recommended for on-camera speakers).** Runs
    MediaPipe on the video, watches whose mouth moves during each
@@ -75,9 +81,9 @@ ways to assign cues to speakers:
    ```
 
 2. **Manual tagging.** Edit the SRT directly to add `[A]`/`[B]`
-   prefixes. Faster for short clips, but text-based guessing about
-   "who would say this" is often wrong — visual is more reliable
-   when speakers are visible.
+   prefixes. Faster for very short clips, but text-based guessing
+   about "who would say this" is often wrong — visual is more
+   reliable when speakers are visible.
 
 Then route voices in `dub.py`:
 
