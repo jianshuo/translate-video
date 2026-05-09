@@ -809,13 +809,62 @@ the un-tagged version so `[A]` doesn't show up on screen:
     --out input_en_final.mp4
 ```
 
-**Diarization.** Whisper alone does not produce speaker labels. For
-a known short clip, manual tagging (read the transcript, assign A/B
-based on context) is the fastest path. For longer content or when
-the speakers are not obvious from text alone, run `pyannote.audio`
-or `whisperx --diarize` separately and merge the speaker timeline
-with whisper's word timestamps. This skill does not yet automate
-diarization — file an issue or PR if you want it.
+**Diarization — visual is more reliable than guessing from text.**
+Whisper alone does not produce speaker labels. For a sit-down
+interview/dialogue where speakers are visible on screen, the
+bundled `scripts/visual_diarize.py` is fast, accurate, and self-
+contained:
+
+```bash
+.venv/bin/python visual_diarize.py \
+    --video input.mp4 --srt input.en.srt \
+    --out input.en.diarized.srt \
+    --report diarization_report.json \
+    --sample-fps 5 --num-speakers 2
+```
+
+How it works:
+
+1. Samples N frames per second (default 5) of the video.
+2. Runs MediaPipe FaceLandmarker (Tasks API) to find up to
+   `--num-speakers` faces per frame and 478 landmarks each.
+3. For each face, measures mouth aperture as the vertical distance
+   between inner upper lip (idx 13) and inner lower lip (idx 14).
+4. Bins faces by horizontal screen position (x-quantiles) into
+   speakers — labels them `A`, `B`, ... left-to-right.
+5. For every cue's [start, end] window, integrates per-speaker
+   frame-to-frame mouth-aperture change. Whoever moved their mouth
+   the most during that cue wins the tag.
+6. Writes a `[A]`/`[B]`-prefixed SRT and a JSON report with
+   per-cue scores + a confidence ratio (winner / runner-up).
+
+Dependencies: `mediapipe` and `opencv-python` in the venv. On first
+run, downloads the FaceLandmarker model (~3.6MB) to
+`/tmp/mp_models/face_landmarker.task`.
+
+**This is materially better than text-based labeling.** In one
+validation, manual labels (based on reading the transcript and
+guessing who'd say what) put 6/56 cues with speaker A and 50/56
+with B. Visual diarization revealed the actual split was 29/27 —
+i.e. text-based guesses were wildly wrong because the speakers
+take similar-shaped turns and the conversational handoff was at
+cue 30, not cue 7. Always prefer visual diarization when the
+speakers are on camera.
+
+**Confidence-ratio review.** Spot-check any cue with
+`confidence_ratio < 1.5` in the JSON report — these are usually
+overlapping speech (laughter, agreement) or one speaker briefly
+out of frame. Manually correct in the diarized SRT before dubbing.
+
+**Limits.** Visual diarization fails when:
+- A speaker is consistently off-camera while talking.
+- Camera cuts or zooms make face position unstable across cues.
+- Three or more speakers are in similar horizontal positions
+  (binning by x is too coarse — switch to k-means on (x, y) or use
+  pyannote audio diarization instead).
+
+For audio-only material (podcasts, voice-overs), fall back to
+`pyannote.audio` or `whisperx --diarize`.
 
 ### Always sample before committing
 

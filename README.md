@@ -49,13 +49,46 @@ quality details that make output actually shippable to social media:
 
 ```
 translate-video/
-├── SKILL.md          # Full instructions for Claude (loaded as a skill)
-├── README.md         # This file
-├── LICENSE           # MIT
+├── SKILL.md             # Full instructions for Claude (loaded as a skill)
+├── README.md            # This file
+├── LICENSE              # MIT
 └── scripts/
-    ├── dub.py        # TTS + per-cue time-alignment
-    └── render.py     # Burn subtitles + mix audio + final cut
+    ├── dub.py           # TTS + per-cue time-alignment + per-speaker voices
+    ├── render.py        # Burn subtitles + mix audio + final cut
+    └── visual_diarize.py  # Mouth-movement speaker diarization (MediaPipe)
 ```
+
+## Multi-speaker dubbing
+
+For interviews/dialogues, use a different voice per speaker. Two
+ways to assign cues to speakers:
+
+1. **Visual diarization (recommended for on-camera speakers).** Runs
+   MediaPipe on the video, watches whose mouth moves during each
+   cue, tags the SRT with `[A]`/`[B]`/...
+
+   ```bash
+   uv pip install --python .venv/bin/python mediapipe opencv-python
+   .venv/bin/python scripts/visual_diarize.py \
+       --video in.mp4 --srt in.en.srt --out in.en.diarized.srt \
+       --report report.json --sample-fps 5
+   ```
+
+2. **Manual tagging.** Edit the SRT directly to add `[A]`/`[B]`
+   prefixes. Faster for short clips, but text-based guessing about
+   "who would say this" is often wrong — visual is more reliable
+   when speakers are visible.
+
+Then route voices in `dub.py`:
+
+```bash
+.venv/bin/python scripts/dub.py en-US-AndrewMultilingualNeural -3% +0Hz \
+    --srt in.en.diarized.srt \
+    --voice-map "A=en-US-BrianMultilingualNeural,B=en-US-AndrewMultilingualNeural"
+```
+
+`render.py` always uses the **clean** SRT (no tags) for burn-in, so
+the on-screen text doesn't show `[A]`/`[B]` labels.
 
 ## Install as a Claude Code skill
 
