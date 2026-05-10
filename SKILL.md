@@ -109,12 +109,21 @@ The user may provide:
 
 ### Step 1: Inspect the Source
 
-Determine what the user provided:
+First, **identify the source language**. Pin it explicitly (don't rely
+on auto-detect): ask the user if not obvious, or infer from filename /
+visible script / accent in a quick listen. Lock it as `--language es`,
+`--language en`, `--language pt`, `--language ja`, etc. for whisper.
 
-- If the user provides a video or audio file, transcribe the Spanish speech.
-- If the user provides an existing Spanish subtitle file, preserve its timestamps and translate line by line.
-- If the user provides only transcript text, translate it and create subtitles only if timing information is available.
-- If no timing information exists, do not invent exact timestamps unless the user explicitly asks for approximate timing.
+Then determine what the user provided:
+
+- **Video or audio file** → transcribe the source-language speech with whisper (Step 2).
+- **Existing source-language subtitle file** (`.srt` / `.vtt` / `.ass`) → preserve its timestamps and translate line by line; skip whisper.
+- **Plain transcript text only** → translate it; create subtitles only if timing information is available.
+- **No timing information at all** → do not invent timestamps unless the user explicitly asks for approximate timing.
+
+If the source language is one whisper supports but you have no
+matching TTS voice for the target, finish through SRT and stop —
+flag the missing-voice gap to the user before promising a dub.
 
 ---
 
