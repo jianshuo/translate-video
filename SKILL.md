@@ -493,7 +493,19 @@ $FF -version | grep -oE -- "--enable-(libass|libfreetype)"
 Then use `$FF` instead of `ffmpeg` for the render. The brew binary is
 fine for everything else (probe, audio extraction, soft-mux).
 
-**Burn-in render with style overrides:**
+**Burn-in render with style overrides.**
+
+🛑 **Checkpoint — confirm before full-render.** Burn-in re-encodes the
+entire video (minutes of CPU on a 5-min clip). Before kicking it off:
+
+1. Render only the first 30s with `-t 30` for a fast preview.
+2. Extract a frame from the longest-line cue (see Fontsize calibration
+   below) and Read it.
+3. Show the user the preview frame + the cue text, ask: "字号/字体/边距
+   OK 吗？OK 才跑全片。" Wait for explicit confirmation.
+
+Skip the checkpoint only if the user has already approved a full render
+of this exact video at this exact font config in the same conversation.
 
 ```bash
 $FF -i input.mp4 \
@@ -696,6 +708,20 @@ Then drive it from a single long-lived Python process using
 `edge_tts.Communicate(...)` directly, with retry-on-failure logic. A
 ready-to-run script lives at `scripts/dub.py` next to this SKILL.md;
 copy it into the working directory and run:
+
+🛑 **Checkpoint — sample before full dub.** A full-video dub is the
+most expensive step (TTS API calls + atempo + ffmpeg mux). Before
+running `dub.py` over the whole SRT:
+
+1. Pick the longest-text cue (worst stretch case) and one
+   short/casual cue (timbre check).
+2. Synthesize 3–4 voice/rate/pitch combos at 3–8s each — see "Always
+   sample before committing" below.
+3. Show the user the audio panel and ask: "选哪个 voice？rate/pitch
+   要调吗？确认后我再跑全片。" Wait for explicit pick.
+
+Skip the checkpoint only if the user named a specific voice up front
+AND has already heard a sample of that voice on this video.
 
 ```bash
 .venv/bin/python dub.py [voice] [rate] [pitch]
@@ -928,7 +954,13 @@ Adopt the `_zh_` / `_en_` infix the moment a project produces both.
   user's instance. The doc lists many voices that error with
   `code=55000000 "resource ID is mismatched with speaker related
   resource"` against typical SeedTTS-2.0 starter bundles. The skill's
-  Volcano speaker table marks which are confirmed-working.
+  Volcano speaker table marks which are confirmed-working. **Mandatory
+  smoke test before promising any Volcano voice on a new account:**
+  synth one ~5-word cue with that speaker ID first; only quote it to
+  the user if the smoke test returns a non-empty MP3. If the smoke
+  test 401s with `code=45000010` ("grant not found"), tell the user
+  they need to 开通 the resource in 火山引擎 console — do not pretend
+  it'll work after a retry.
 - For the Volcano endpoint, parse the response as **streaming
   NDJSON**, not a single JSON document. The success terminator is
   `code=20000000`, not `code=0`. Concatenate base64-decoded `data`
