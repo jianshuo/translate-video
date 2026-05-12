@@ -1,6 +1,20 @@
 ---
 name: translate-video
-description: End-to-end video localization. Transcribe spoken audio in any language Whisper supports (Spanish, English, Portuguese, French, Italian, Japanese, Korean, etc.), translate into a chosen target language (Simplified Chinese and English are first-class; other targets work via the same pipeline if a TTS voice is available), generate punctuation-bounded SRT subtitles, optionally burn them into the video, and optionally produce a time-aligned voice dub. Defaults to single-speaker — uses one voice for the whole video. Multi-speaker dubbing (different voice per person) is an opt-in advanced mode triggered only when the user explicitly says the source has multiple speakers. TTS routes by voice ID — Volcano (豆包) for Chinese, edge-tts neural for any language. Preserves the original audio as a low-volume bed under the dub when desired. Bundled scripts in `scripts/`: `dub.py` (TTS + time-align), `render.py` (burn + mix + final), and `visual_diarize.py` (opt-in mouth-movement speaker detection). All major behaviors are flag-controlled.
+description: >-
+  End-to-end video localization. Transcribe spoken audio in any language Whisper
+  supports (Spanish, English, Portuguese, French, Italian, Japanese, Korean,
+  etc.), translate into a chosen target language (Simplified Chinese and English
+  are first-class; other targets work via the same pipeline if a TTS voice is
+  available), generate punctuation-bounded SRT subtitles, optionally burn them
+  into the video, and optionally produce a time-aligned voice dub. Defaults to
+  single-speaker — uses one voice for the whole video. Multi-speaker dubbing
+  (different voice per person) is an opt-in advanced mode triggered only when the
+  user explicitly says the source has multiple speakers. TTS routes by voice ID —
+  Volcano (豆包) for Chinese, edge-tts neural for any language. Preserves the
+  original audio as a low-volume bed under the dub when desired. Bundled scripts
+  in `scripts/`: `dub.py` (TTS + time-align), `render.py` (burn + mix + final),
+  and `visual_diarize.py` (opt-in mouth-movement speaker detection). All major
+  behaviors are flag-controlled.
 ---
 
 # translate-video
